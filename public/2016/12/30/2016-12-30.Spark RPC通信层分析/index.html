@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+
+    <!--[if lt IE 9]>
+        <style>body {display: none; background: none !important} </style>
+        <meta http-equiv="Refresh" Content="0; url=//outdatedbrowser.com/" />
+    <![endif]-->
+
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge, chrome=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="format-detection" content="telephone=no" />
+<meta name="author" content="xcoder" />
+
+
+
+<meta name="description" content="Spark将RPC通信层设计的非常巧妙，融合了各种设计/架构模式，将一个分布式集群系统的通信层细节完全屏蔽，这样在上层的计算框架的设计中能够获得很好的灵活性。同时，如果上层想要增加各种新的特性，或者对来自不同企业或组织的程序员贡献的特性，也能够很容易地增加进来，可以避开复杂的通信层而将注意力集中在上层计算框架的处理和优化上，入手难度非常小。另外，对上层计算框架中的各个核心组件的开发、功能增强，">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Spark RPC通信层分析">
+<meta property="og:url" content="http://yoursite.com/2016/12/30/2016-12-30.Spark RPC通信层分析/index.html">
+<meta property="og:site_name" content="XCODER">
+<meta property="og:description" content="Spark将RPC通信层设计的非常巧妙，融合了各种设计/架构模式，将一个分布式集群系统的通信层细节完全屏蔽，这样在上层的计算框架的设计中能够获得很好的灵活性。同时，如果上层想要增加各种新的特性，或者对来自不同企业或组织的程序员贡献的特性，也能够很容易地增加进来，可以避开复杂的通信层而将注意力集中在上层计算框架的处理和优化上，入手难度非常小。另外，对上层计算框架中的各个核心组件的开发、功能增强，">
+<meta property="og:image" content="http://yoursite.com/resources/bigdata/spark-rpc-rpcenv.png">
+<meta property="og:image" content="http://yoursite.com/resources/bigdata/SparkRPC-Create-NettyRpcEnv.png">
+<meta property="og:updated_time" content="2016-12-30T18:31:40.678Z">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Spark RPC通信层分析">
+<meta name="twitter:description" content="Spark将RPC通信层设计的非常巧妙，融合了各种设计/架构模式，将一个分布式集群系统的通信层细节完全屏蔽，这样在上层的计算框架的设计中能够获得很好的灵活性。同时，如果上层想要增加各种新的特性，或者对来自不同企业或组织的程序员贡献的特性，也能够很容易地增加进来，可以避开复杂的通信层而将注意力集中在上层计算框架的处理和优化上，入手难度非常小。另外，对上层计算框架中的各个核心组件的开发、功能增强，">
+<meta name="twitter:image" content="http://yoursite.com/resources/bigdata/spark-rpc-rpcenv.png">
+
+<link rel="apple-touch-icon" href= "/apple-touch-icon.png">
+
+
+    <link rel="alternate" href="/atom.xml" title="XCODER" type="application/atom+xml">
+
+
+
+    <link rel="shortcut icon" href="/favicon.png">
+
+
+
+    <link href="//cdn.bootcss.com/animate.css/3.5.1/animate.min.css" rel="stylesheet">
+
+
+
+    <link href="//cdn.bootcss.com/fancybox/2.1.5/jquery.fancybox.min.css" rel="stylesheet">
+
+
+
+    <script src="//cdn.bootcss.com/pace/1.0.2/pace.min.js"></script>
+    <link href="//cdn.bootcss.com/pace/1.0.2/themes/blue/pace-theme-minimal.css" rel="stylesheet">
+
+
+<link rel="stylesheet" href="/css/style.css">
+
+
+
+<link href="//cdn.bootcss.com/font-awesome/4.6.3/css/font-awesome.min.css" rel="stylesheet">
+
+
+<title>Spark RPC通信层分析 | XCODER</title>
+
+<script src="//cdn.bootcss.com/jquery/2.2.4/jquery.min.js"></script>
+<script src="//cdn.bootcss.com/clipboard.js/1.5.10/clipboard.min.js"></script>
+
+<script>
+    var yiliaConfig = {
+        fancybox: true,
+        animate: true,
+        isHome: false,
+        isPost: true,
+        isArchive: false,
+        isTag: false,
+        isCategory: false,
+        fancybox_js: "//cdn.bootcss.com/fancybox/2.1.5/jquery.fancybox.min.js",
+        scrollreveal: "//cdn.bootcss.com/scrollReveal.js/3.1.4/scrollreveal.min.js",
+        search: undefined
+    }
+</script>
+
+
+    <script> yiliaConfig.jquery_ui = [false]; </script>
+
+
+
+    <script> yiliaConfig.rootUrl = "\/";</script>
+
+
+
+
+
+
+</head>
+<body>
+  <div id="container">
+    <div class="left-col">
+    <div class="overlay"></div>
+<div class="intrude-less">
+    <header id="header" class="inner">
+        <a href="/" class="profilepic">
+            <img src="/img/avatar.png" class="animated zoomIn">
+        </a>
+        <hgroup>
+          <h1 class="header-author"><a href="/">xcoder</a></h1>
+        </hgroup>
+
+        
+
+        
+
+
+        
+            <div id="switch-btn" class="switch-btn">
+                <div class="icon">
+                    <div class="icon-ctn">
+                        <div class="icon-wrap icon-house" data-idx="0">
+                            <div class="birdhouse"></div>
+                            <div class="birdhouse_holes"></div>
+                        </div>
+                        <div class="icon-wrap icon-ribbon hide" data-idx="1">
+                            <div class="ribbon"></div>
+                        </div>
+                        
+                        <div class="icon-wrap icon-link hide" data-idx="2">
+                            <div class="loopback_l"></div>
+                            <div class="loopback_r"></div>
+                        </div>
+                        
+                        
+                        <div class="icon-wrap icon-me hide" data-idx="3">
+                            <div class="user"></div>
+                            <div class="shoulder"></div>
+                        </div>
+                        
+                    </div>
+                    
+                </div>
+                <div class="tips-box hide">
+                    <div class="tips-arrow"></div>
+                    <ul class="tips-inner">
+                        <li>菜单</li>
+                        <li>标签</li>
+                        
+                        <li>友情链接</li>
+                        
+                        
+                        <li>关于我</li>
+                        
+                    </ul>
+                </div>
+            </div>
+        
+
+        <div id="switch-area" class="switch-area">
+            <div class="switch-wrap">
+                <section class="switch-part switch-part1">
+                    <nav class="header-menu">
+                        <ul>
+                        
+                            <li><a href="/">主页</a></li>
+                        
+                            <li><a href="/archives/">所有文章</a></li>
+                        
+                            <li><a href="/tags/">标签云</a></li>
+                        
+                            <li><a href="/about/">关于我</a></li>
+                        
+                        </ul>
+                    </nav>
+                    <nav class="header-nav">
+                        <ul class="social">
+                            
+                                <a class="fa Email" href="mailto:123@123.com" title="Email"></a>
+                            
+                                <a class="fa GitHub" href="#" title="GitHub"></a>
+                            
+                                <a class="fa RSS" href="/atom.xml" title="RSS"></a>
+                            
+                        </ul>
+                    </nav>
+                </section>
+                
+                
+                <section class="switch-part switch-part2">
+                    <div class="widget tagcloud" id="js-tagcloud">
+                        <ul class="tag-list"><li class="tag-list-item"><a class="tag-list-link" href="/tags/Anki/">Anki</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Browsersync/">Browsersync</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/CSS/">CSS</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/DNS/">DNS</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Disqus/">Disqus</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/EndNote/">EndNote</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Excel/">Excel</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Font-Awesome/">Font-Awesome</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/GIF/">GIF</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Git/">Git</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/GitHub/">GitHub</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/HTML/">HTML</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Hexo/">Hexo</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/JSON/">JSON</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/JavaScript/">JavaScript</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Mac/">Mac</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Markdown/">Markdown</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/PNG/">PNG</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/PhotoShop/">PhotoShop</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/PowerPoint/">PowerPoint</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Reference/">Reference</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Software/">Software</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Sublime/">Sublime</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Table/">Table</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/TagCloud/">TagCloud</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/UA/">UA</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Windows/">Windows</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/WordPress/">WordPress</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/Yelee/">Yelee</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/font-family/">font-family</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/jQuery/">jQuery</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/rpc/">rpc</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/spark/">spark</a></li><li class="tag-list-item"><a class="tag-list-link" href="/tags/多说/">多说</a></li></ul>
+                    </div>
+                </section>
+                
+                
+                
+                <section class="switch-part switch-part3">
+                    <div id="js-friends">
+                    
+                      <a class="main-nav-link switch-friends-link" href="https://hexo.io">Hexo</a>
+                    
+                      <a class="main-nav-link switch-friends-link" href="https://pages.github.com/">GitHub</a>
+                    
+                      <a class="main-nav-link switch-friends-link" href="http://moxfive.xyz/">MOxFIVE</a>
+                    
+                    </div>
+                </section>
+                
+
+                
+                
+                <section class="switch-part switch-part4">
+                
+                    <div id="js-aboutme">专注于前端</div>
+                </section>
+                
+            </div>
+        </div>
+    </header>                
+</div>
+    </div>
+    <div class="mid-col">
+      <nav id="mobile-nav">
+      <div class="overlay">
+          <div class="slider-trigger"></div>
+          <h1 class="header-author js-mobile-header hide"><a href="/" title="回到主页">xcoder</a></h1>
+      </div>
+    <div class="intrude-less">
+        <header id="header" class="inner">
+            <a href="/" class="profilepic">
+                <img src="/img/avatar.png" class="animated zoomIn">
+            </a>
+            <hgroup>
+              <h1 class="header-author"><a href="/" title="回到主页">xcoder</a></h1>
+            </hgroup>
+            
+            <nav class="header-menu">
+                <ul>
+                
+                    <li><a href="/">主页</a></li>
+                
+                    <li><a href="/archives/">所有文章</a></li>
+                
+                    <li><a href="/tags/">标签云</a></li>
+                
+                    <li><a href="/about/">关于我</a></li>
+                
+                <div class="clearfix"></div>
+                </ul>
+            </nav>
+            <nav class="header-nav">
+                        <ul class="social">
+                            
+                                <a class="fa Email" target="_blank" href="mailto:123@123.com" title="Email"></a>
+                            
+                                <a class="fa GitHub" target="_blank" href="#" title="GitHub"></a>
+                            
+                                <a class="fa RSS" target="_blank" href="/atom.xml" title="RSS"></a>
+                            
+                        </ul>
+            </nav>
+        </header>                
+    </div>
+    <link class="menu-list" tags="标签" friends="友情链接" about="关于我"/>
+</nav>
+      <div class="body-wrap"><article id="post-2016-12-30.Spark RPC通信层分析" class="article article-type-post" itemscope itemprop="blogPost">
+  
+    <div class="article-meta">
+      <a href="/2016/12/30/2016-12-30.Spark RPC通信层分析/" class="article-date">
+      <time datetime="2016-12-29T16:00:00.000Z" itemprop="datePublished">2016-12-30</time>
+</a>
+
+
+    </div>
+  
+  <div class="article-inner">
+    
+      <input type="hidden" class="isFancy" />
+    
+    
+      <header class="article-header">
+        
+  
+    <h1 class="article-title" itemprop="name">
+      Spark RPC通信层分析
+    </h1>
+  
+
+      </header>
+      
+      <div class="article-info article-info-post">
+        
+    <div class="article-category tagcloud">
+    <a class="article-category-link" href="/categories/spark/">spark</a>
+    </div>
+
+
+        
+    <div class="article-tag tagcloud">
+        <ul class="article-tag-list"><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/rpc/">rpc</a></li><li class="article-tag-list-item"><a class="article-tag-list-link" href="/tags/spark/">spark</a></li></ul>
+    </div>
+
+        <div class="clearfix"></div>
+      </div>
+      
+    
+    <div class="article-entry" itemprop="articleBody">
+      
+          
+        <p>　　Spark将RPC通信层设计的非常巧妙，融合了各种设计/架构模式，将一个分布式集群系统的通信层细节完全屏蔽，这样在上层的计算框架的设计中能够获得很好的灵活性。同时，如果上层想要增加各种新的特性，或者对来自不同企业或组织的程序员贡献的特性，也能够很容易地增加进来，可以避开复杂的通信层而将注意力集中在上层计算框架的处理和优化上，入手难度非常小。另外，对上层计算框架中的各个核心组件的开发、功能增强，以及Bug修复等都会变得更加容易。<br><a id="more"></a></p>
+<h2 id="Spark-RPC"><a href="#Spark-RPC" class="headerlink" title="Spark RPC"></a>Spark RPC</h2><p>Spark 中的消息通信主要涉及 <code>RpcEnv</code>、<code>RpcEndpoint</code> 及 <code>RpcEndpointRef</code> 几个类。<br><img src="/resources/bigdata/spark-rpc-rpcenv.png" alt="spark rpc"></p>
+<p>　　<code>RPCEndpoints</code>  定义了如何处理消息（即，使用哪个函数来处理指定消息）,在通过name完成注册后，<code>RpcEndpoint</code> 就一直存放在 <code>RpcEnv</code> 中。<code>RpcEndpoint</code> 的生命周期按顺序是 <code>onStart</code>，<code>receive</code> 及 <code>onStop</code>，<code>receive</code> 可以被同时调用，如果希望 <code>receive</code> 是线程安全的，可以使用 <code>ThreadSafeRpcEndpoint</code>。</p>
+<p>　　<code>RpcEndpointRef</code> 是 <code>RpcEnv</code> 中的 <code>RpcEndpoint</code> 的引用，是一个序列化的实体以便于通过网络传送或保存以供之后使用。一个 <code>RpcEndpointRef</code> 有一个地址和名字。可以调用 <code>RpcEndpointRef</code> 的 <code>send</code> 方法发送异步的单向的消息给对应的 <code>RpcEndpoint</code>。</p>
+<p>　　<code>RpcEnv</code> 管理各个 <code>RpcEndpoint</code> 并将发送自 <code>RpcEndpointRef</code> 或远程节点的消息分发给对应的 <code>RpcEndpoint</code>。对于 <code>RpcEnv</code> 没有 catch 到的异常，会通过 <code>RpcCallContext.sendFailure</code> 将该异常发回给消息发送者或记日志。</p>
+<h2 id="RpcEnvFactory"><a href="#RpcEnvFactory" class="headerlink" title="RpcEnvFactory"></a>RpcEnvFactory</h2><p><code>RpcEnvFactory</code> 是构造 <code>RpcEnv</code> 的工厂类，调用其 <code>create(config: RpcEnvConfig): RpcEnv</code> 会 <code>new</code> 一个 <code>RpcEnv</code> 实例并返回。</p>
+<p>Spark 中实现了两种 RpcEnvFactory：</p>
+<ul>
+<li>org.apache.spark.rpc.netty.NettyRpcEnvFactory 使用 netty</li>
+<li>org.apache.spark.rpc.akka.AkkaRpcEnvFactory 使用 akka</li>
+</ul>
+<p>其中在 Spark 2.0 已经没有了 AkkaRpcEnvFactory，仅保留了 NettyRpcEnvFactory。在 Spark 1.6 中可以通过设置 spark.rpc 值为 netty （默认）来使用 NettyRpcEnvFactory 或设置为 akka 来使用 AkkaRpcEnvFactory，例如：</p>
+<ul>
+<li>$ ./bin/spark-shell –conf spark.rpc=netty</li>
+<li>$ ./bin/spark-shell –conf spark.rpc=akka</li>
+</ul>
+<h2 id="RpcEnv"><a href="#RpcEnv" class="headerlink" title="RpcEnv"></a>RpcEnv</h2><p><code>Rpc Environment（RpcEnv）</code>是一个 <code>RpcEndpoints</code> 用于处理消息的环境，<code>RpcEnv</code> 必须通过工厂类 <code>RpcEnvFactory</code> 创建。<code>它管理着整个RpcEndpoints</code> 的声明周期：</p>
+<p>（1）根据name或uri注册endpoints<br>（2）管理各种消息的处理<br>（3）停止endpoints</p>
+<p><code>RpcAddress</code> 与 <code>RpcEndpointAddress</code><br><code>RpcAddress</code> 是一个 <code>RpcEnv</code> 的逻辑地址，包含 hostname 和端口，<code>RpcAddress</code> 像 Spark URL 一样编码，比如：<code>spark://host:port</code>。<code>RpcEndpointAddress</code> 是向一个 <code>RpcEnv</code> 注册的 <code>RpcEndpoint</code> 的逻辑地址，包含 <code>RpcAddress</code> 及名字，格式如：<code>spark://[name]@[rpcAddress.host]:[rpcAddress.port]</code></p>
+<h3 id="RpcEnv抽象类"><a href="#RpcEnv抽象类" class="headerlink" title="RpcEnv抽象类"></a>RpcEnv抽象类</h3><p>一个 <code>RpcEnv</code> 是一个 <code>RPC</code> 环境对象，它负责管理 <code>RpcEndpoint</code> 的注册，以及如何从一个 <code>RpcEndpoint</code> 获取到一个 <code>RpcEndpointRef</code>。<code>RpcEndpoint</code> 是一个通信端，例如Spark集群中的 <code>Master</code>，或 <code>Worker</code>，都是一个 <code>RpcEndpoint</code>。但是，如果想要与一个 <code>RpcEndpoint</code> 端进行通信，一定需要获取到该<code>RpcEndpoint</code>一个 <code>RpcEndpointRef</code>，而获取该 <code>RpcEndpointRef</code> 只能通过一个 RpcEnv 环境对象来获取。所以说，一个 <code>RpcEnv</code> 对象才是RPC通信过程中的“指挥官”，在 <code>RpcEnv</code> 类中，有一个核心的方法：<br><figure class="highlight scala"><table><tr><td class="gutter"><pre><div class="line">1</div></pre></td><td class="code"><pre><div class="line"><span class="function"><span class="keyword">def</span> <span class="title">setupEndpoint</span></span>(name: <span class="type">String</span>, endpoint: <span class="type">RpcEndpoint</span>): <span class="type">RpcEndpointRef</span></div></pre></td></tr></table></figure></p>
+<p>通过上面方法，可以注册一个 <code>RpcEndpoint</code> 到 <code>RpcEnv</code> 环境对象中，有 <code>RpcEnv</code> 来管理 <code>RpcEndpoint</code> 到 <code>RpcEndpointRef</code> 的绑定关系。在注册 <code>RpcEndpoint</code> 时，每个 <code>RpcEndpoint</code> 都需要有一个唯一的名称。<br>Spark中基于 <code>Netty</code> 实现通信，所以对应的 <code>RpcEnv</code> 实现为 <code>NettyRpcEnv</code>，上面方法的实现，如下所示：<br><figure class="highlight scala"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line"><span class="keyword">override</span> <span class="function"><span class="keyword">def</span> <span class="title">setupEndpoint</span></span>(name: <span class="type">String</span>, endpoint: <span class="type">RpcEndpoint</span>): <span class="type">RpcEndpointRef</span> = &#123;</div><div class="line">  dispatcher.registerRpcEndpoint(name, endpoint)</div><div class="line">&#125;</div></pre></td></tr></table></figure></p>
+<p>调用NettyRpcEnv内部的Dispatcher对象注册一个RpcEndpoint：<br><figure class="highlight scala"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div></pre></td><td class="code"><pre><div class="line"><span class="function"><span class="keyword">def</span> <span class="title">registerRpcEndpoint</span></span>(name: <span class="type">String</span>, endpoint: <span class="type">RpcEndpoint</span>): <span class="type">NettyRpcEndpointRef</span> = &#123;</div><div class="line">  <span class="keyword">val</span> addr = <span class="type">RpcEndpointAddress</span>(nettyEnv.address, name)</div><div class="line">  <span class="keyword">val</span> endpointRef = <span class="keyword">new</span> <span class="type">NettyRpcEndpointRef</span>(nettyEnv.conf, addr, nettyEnv)</div><div class="line">  synchronized &#123;</div><div class="line">    <span class="keyword">if</span> (stopped) &#123;</div><div class="line">      <span class="keyword">throw</span> <span class="keyword">new</span> <span class="type">IllegalStateException</span>(<span class="string">"RpcEnv has been stopped"</span>)</div><div class="line">    &#125;</div><div class="line">    <span class="keyword">if</span> (endpoints.putIfAbsent(name, <span class="keyword">new</span> <span class="type">EndpointData</span>(name, endpoint, endpointRef)) != <span class="literal">null</span>) &#123;</div><div class="line">      <span class="keyword">throw</span> <span class="keyword">new</span> <span class="type">IllegalArgumentException</span>(<span class="string">s"There is already an RpcEndpoint called <span class="subst">$name</span>"</span>)</div><div class="line">    &#125;</div><div class="line">    <span class="keyword">val</span> data = endpoints.get(name)</div><div class="line">    endpointRefs.put(data.endpoint, data.ref)</div><div class="line">    receivers.offer(data)  <span class="comment">// for the OnStart message</span></div><div class="line">  &#125;</div><div class="line">  endpointRef</div><div class="line">&#125;</div></pre></td></tr></table></figure></p>
+<p>一个 RpcEndpoint 只能注册一次（根据 RpcEndpoint 的名称来检查唯一性），这样在 Dispatcher 内部注册并维护 RpcEndpoint 与 RpcEndpointRef 的绑定关系，通过如下两个内部结构：<br><figure class="highlight scala"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div></pre></td><td class="code"><pre><div class="line"><span class="comment">/**</span></div><div class="line"> * A message dispatcher, responsible for routing RPC messages to the appropriate endpoint(s).</div><div class="line"> */</div><div class="line"><span class="keyword">private</span>[netty] <span class="class"><span class="keyword">class</span> <span class="title">Dispatcher</span>(<span class="params">nettyEnv: <span class="type">NettyRpcEnv</span></span>) <span class="keyword">extends</span> <span class="title">Logging</span> </span>&#123;</div><div class="line"></div><div class="line"><span class="comment">//这里，每一个命名唯一的RpcEndpoint对应一个线程安全的Inbox，所有发送给一个RpcEndpoint的消息，都由对应的Inbox将对应的消息路由给RpcEndpoint进行处理。</span></div><div class="line">  <span class="keyword">private</span> <span class="class"><span class="keyword">class</span> <span class="title">EndpointData</span>(<span class="params"></span></span></div><div class="line">      val name: <span class="type">String</span>,</div><div class="line">      val endpoint: <span class="type">RpcEndpoint</span>,</div><div class="line">      val ref: <span class="type">NettyRpcEndpointRef</span>) &#123;</div><div class="line">    <span class="keyword">val</span> inbox = <span class="keyword">new</span> <span class="type">Inbox</span>(ref, endpoint)</div><div class="line">  &#125;</div><div class="line"></div><div class="line">  <span class="comment">//一个命名唯一的RpcEndpoint在Dispatcher中对应一个EndpointData来维护其信息</span></div><div class="line">  <span class="keyword">private</span> <span class="keyword">val</span> endpoints: <span class="type">ConcurrentMap</span>[<span class="type">String</span>, <span class="type">EndpointData</span>] =</div><div class="line">    <span class="keyword">new</span> <span class="type">ConcurrentHashMap</span>[<span class="type">String</span>, <span class="type">EndpointData</span>]</div><div class="line">  <span class="keyword">private</span> <span class="keyword">val</span> endpointRefs: <span class="type">ConcurrentMap</span>[<span class="type">RpcEndpoint</span>, <span class="type">RpcEndpointRef</span>] =</div><div class="line">    <span class="keyword">new</span> <span class="type">ConcurrentHashMap</span>[<span class="type">RpcEndpoint</span>, <span class="type">RpcEndpointRef</span>]</div><div class="line"></div><div class="line">  <span class="comment">// Track the receivers whose inboxes may contain messages.</span></div><div class="line">  <span class="keyword">private</span> <span class="keyword">val</span> receivers = <span class="keyword">new</span> <span class="type">LinkedBlockingQueue</span>[<span class="type">EndpointData</span>]</div><div class="line">...</div><div class="line">&#125;</div></pre></td></tr></table></figure></p>
+<p>我们来看看RpcEnv的具体内容：</p>
+<figure class="highlight scala"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div></pre></td><td class="code"><pre><div class="line"><span class="keyword">private</span>[spark] <span class="keyword">abstract</span> <span class="class"><span class="keyword">class</span> <span class="title">RpcEnv</span>(<span class="params">conf: <span class="type">SparkConf</span></span>) </span>&#123;</div><div class="line">	<span class="keyword">private</span>[spark] <span class="keyword">val</span> defaultLookupTimeout = <span class="type">RpcUtils</span>.lookupRpcTimeout(conf)</div><div class="line">	<span class="comment">//返回endpointRef</span></div><div class="line">	<span class="keyword">private</span>[rpc] <span class="function"><span class="keyword">def</span> <span class="title">endpointRef</span></span>(endpoint: <span class="type">RpcEndpoint</span>): <span class="type">RpcEndpointRef</span></div><div class="line">	<span class="comment">//返回RpcEnv监听的地址</span></div><div class="line">	<span class="function"><span class="keyword">def</span> <span class="title">address</span></span>: <span class="type">RpcAddress</span></div><div class="line">	<span class="comment">//注册一个RpcEndpoint到RpcEnv并返回RpcEndpointRef</span></div><div class="line">	<span class="function"><span class="keyword">def</span> <span class="title">setupEndpoint</span></span>(name: <span class="type">String</span>, endpoint: <span class="type">RpcEndpoint</span>): <span class="type">RpcEndpointRef</span></div><div class="line">	<span class="comment">//通过uri异步地查询RpcEndpointRef</span></div><div class="line">	<span class="function"><span class="keyword">def</span> <span class="title">asyncSetupEndpointRefByURI</span></span>(uri: <span class="type">String</span>): <span class="type">Future</span>[<span class="type">RpcEndpointRef</span>]</div><div class="line">	<span class="comment">//通过uri查询RpcEndpointRef，这种方式会产生阻塞</span></div><div class="line">	<span class="function"><span class="keyword">def</span> <span class="title">setupEndpointRefByURI</span></span>(uri: <span class="type">String</span>): <span class="type">RpcEndpointRef</span> = &#123;</div><div class="line">	defaultLookupTimeout.awaitResult(asyncSetupEndpointRefByURI(uri))</div><div class="line">	&#125;</div><div class="line">	<span class="comment">//通过address和endpointName查询RpcEndpointRef，这种方式会产生阻塞</span></div><div class="line">	<span class="function"><span class="keyword">def</span> <span class="title">setupEndpointRef</span></span>(address: <span class="type">RpcAddress</span>, endpointName: <span class="type">String</span>): <span class="type">RpcEndpointRef</span> = &#123;</div><div class="line">	setupEndpointRefByURI(<span class="type">RpcEndpointAddress</span>(address, endpointName).toString)</div><div class="line">	&#125;</div><div class="line">	<span class="comment">//关掉endpoint</span></div><div class="line">	<span class="function"><span class="keyword">def</span> <span class="title">stop</span></span>(endpoint: <span class="type">RpcEndpointRef</span>): <span class="type">Unit</span></div><div class="line">	<span class="comment">//关掉RpcEnv</span></div><div class="line">	<span class="function"><span class="keyword">def</span> <span class="title">shutdown</span></span>(): <span class="type">Unit</span></div><div class="line">	<span class="comment">//等待结束</span></div><div class="line">	<span class="function"><span class="keyword">def</span> <span class="title">awaitTermination</span></span>(): <span class="type">Unit</span></div><div class="line">	<span class="comment">//没有RpcEnv的话RpcEndpointRef是无法被反序列化的，这里是反序列化逻辑</span></div><div class="line">	<span class="function"><span class="keyword">def</span> <span class="title">deserialize</span></span>[<span class="type">T</span>](deserializationAction: () =&gt; <span class="type">T</span>): <span class="type">T</span></div><div class="line">	<span class="comment">//返回文件server实例</span></div><div class="line">	<span class="function"><span class="keyword">def</span> <span class="title">fileServer</span></span>: <span class="type">RpcEnvFileServer</span></div><div class="line">	<span class="comment">//开一个针对给定URI的channel用来下载文件</span></div><div class="line">	<span class="function"><span class="keyword">def</span> <span class="title">openChannel</span></span>(uri: <span class="type">String</span>): <span class="type">ReadableByteChannel</span></div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<p>另外RpcEnv有一个伴生对象，实现了create方法：<br><figure class="highlight scala"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div></pre></td><td class="code"><pre><div class="line"><span class="keyword">private</span>[spark] <span class="class"><span class="keyword">object</span> <span class="title">RpcEnv</span> </span>&#123;</div><div class="line">  <span class="function"><span class="keyword">def</span> <span class="title">create</span></span>(</div><div class="line">      name: <span class="type">String</span>,</div><div class="line">      host: <span class="type">String</span>,</div><div class="line">      port: <span class="type">Int</span>,</div><div class="line">      conf: <span class="type">SparkConf</span>,</div><div class="line">      securityManager: <span class="type">SecurityManager</span>,</div><div class="line">      clientMode: <span class="type">Boolean</span> = <span class="literal">false</span>): <span class="type">RpcEnv</span> = &#123;</div><div class="line">    <span class="keyword">val</span> config = <span class="type">RpcEnvConfig</span>(conf, name, host, port, securityManager, clientMode)</div><div class="line">    <span class="keyword">new</span> <span class="type">NettyRpcEnvFactory</span>().create(config)</div><div class="line">  &#125;</div><div class="line">&#125;</div></pre></td></tr></table></figure></p>
+<h3 id="创建NettyRpcEnv环境对象"><a href="#创建NettyRpcEnv环境对象" class="headerlink" title="创建NettyRpcEnv环境对象"></a>创建NettyRpcEnv环境对象</h3><p>创建NettyRpcEnv对象，是一个非常重的操作，所以在框架里使用过程中要尽量避免重复创建。创建NettyRpcEnv，会创建很多用来处理底层RPC通信的线程和数据结构。具体的创建过程，如下图所示：<br><img src="/resources/bigdata/SparkRPC-Create-NettyRpcEnv.png" alt="Spark NettyRpcEnv"><br>具体要点，描述如下：</p>
+<ul>
+<li>创建一个NettyRpcEnv对象对象，需要通过NettyRpcEnvFactory来创建</li>
+<li>Dispatcher负责RPC消息的路由，它能够将消息路由到对应的RpcEndpoint进行处理</li>
+<li>NettyStreamManager负责提供文件服务（文件、JAR文件、目录）</li>
+<li>NettyRpcHandler负责处理网络IO事件，接收RPC调用请求，并通过Dispatcher派发消息</li>
+<li>TransportContext负责管理网路传输上下文信息：创建MessageEncoder、MessageDecoder、TransportClientFactory、TransportServer</li>
+<li>TransportServer配置并启动一个RPC Server服务</li>
+</ul>
+<h2 id="RpcEndpoint特质"><a href="#RpcEndpoint特质" class="headerlink" title="RpcEndpoint特质"></a>RpcEndpoint特质</h2><p><code>RpcEndpoint</code> 定义了 <code>RPC</code> 通信过程中的通信端对象，除了具有管理一个 RpcEndpoint 生命周期的操作<code>（constructor -&gt; onStart -&gt; receive* -&gt; onStop）</code>，并给出了通信过程中一个 <code>RpcEndpoint</code> 所具有的基于事件驱动的行为（连接、断开、网络异常），实际上对于Spark框架来说主要是接收消息并处理，具体可以看对应特质 <code>RpcEndpoint</code> 的代码定义，如下所示:</p>
+<figure class="highlight scala"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div><div class="line">24</div><div class="line">25</div><div class="line">26</div><div class="line">27</div><div class="line">28</div><div class="line">29</div><div class="line">30</div><div class="line">31</div><div class="line">32</div><div class="line">33</div><div class="line">34</div><div class="line">35</div><div class="line">36</div><div class="line">37</div><div class="line">38</div><div class="line">39</div><div class="line">40</div><div class="line">41</div><div class="line">42</div><div class="line">43</div><div class="line">44</div><div class="line">45</div><div class="line">46</div><div class="line">47</div><div class="line">48</div></pre></td><td class="code"><pre><div class="line"><span class="keyword">private</span>[spark] <span class="class"><span class="keyword">trait</span> <span class="title">RpcEndpoint</span> </span>&#123;</div><div class="line">  <span class="comment">//当前RpcEndpoint注册到的RpcEnv主子，可以类比为Akka中的actorSystem</span></div><div class="line">  <span class="keyword">val</span> rpcEnv: <span class="type">RpcEnv</span></div><div class="line">  <span class="comment">//直接用来发送消息的RpcEndpointRef，可以类比为Akka中的actorRef</span></div><div class="line">  <span class="keyword">final</span> <span class="function"><span class="keyword">def</span> <span class="title">self</span></span>: <span class="type">RpcEndpointRef</span> = &#123;</div><div class="line">    require(rpcEnv != <span class="literal">null</span>, <span class="string">"rpcEnv has not been initialized"</span>)</div><div class="line">    rpcEnv.endpointRef(<span class="keyword">this</span>)</div><div class="line">  &#125;</div><div class="line">  <span class="comment">//处理来自RpcEndpointRef.send或者RpcCallContext.reply的消息</span></div><div class="line">  <span class="function"><span class="keyword">def</span> <span class="title">receive</span></span>: <span class="type">PartialFunction</span>[<span class="type">Any</span>, <span class="type">Unit</span>] = &#123;</div><div class="line">    <span class="keyword">case</span> _ =&gt; <span class="keyword">throw</span> <span class="keyword">new</span> <span class="type">SparkException</span>(self + <span class="string">" does not implement 'receive'"</span>)</div><div class="line">  &#125;</div><div class="line">  <span class="comment">//处理来自RpcEndpointRef.ask的消息，会有相应的回复</span></div><div class="line">  <span class="function"><span class="keyword">def</span> <span class="title">receiveAndReply</span></span>(context: <span class="type">RpcCallContext</span>): <span class="type">PartialFunction</span>[<span class="type">Any</span>, <span class="type">Unit</span>] = &#123;</div><div class="line">    <span class="keyword">case</span> _ =&gt; context.sendFailure(<span class="keyword">new</span> <span class="type">SparkException</span>(self + <span class="string">" won't reply anything"</span>))</div><div class="line">  &#125;</div><div class="line">  <span class="function"><span class="keyword">def</span> <span class="title">onError</span></span>(cause: <span class="type">Throwable</span>): <span class="type">Unit</span> = &#123;</div><div class="line">    <span class="comment">// By default, throw e and let RpcEnv handle it</span></div><div class="line">    <span class="keyword">throw</span> cause</div><div class="line">  &#125;</div><div class="line"></div><div class="line">  <span class="function"><span class="keyword">def</span> <span class="title">onConnected</span></span>(remoteAddress: <span class="type">RpcAddress</span>): <span class="type">Unit</span> = &#123;</div><div class="line">    <span class="comment">// By default, do nothing.</span></div><div class="line">  &#125;</div><div class="line"></div><div class="line">  <span class="function"><span class="keyword">def</span> <span class="title">onDisconnected</span></span>(remoteAddress: <span class="type">RpcAddress</span>): <span class="type">Unit</span> = &#123;</div><div class="line">    <span class="comment">// By default, do nothing.</span></div><div class="line">  &#125;</div><div class="line"></div><div class="line">  <span class="function"><span class="keyword">def</span> <span class="title">onNetworkError</span></span>(cause: <span class="type">Throwable</span>, remoteAddress: <span class="type">RpcAddress</span>): <span class="type">Unit</span> = &#123;</div><div class="line">    <span class="comment">// By default, do nothing.</span></div><div class="line">  &#125;</div><div class="line"></div><div class="line">  <span class="function"><span class="keyword">def</span> <span class="title">onStart</span></span>(): <span class="type">Unit</span> = &#123;</div><div class="line">    <span class="comment">// By default, do nothing.</span></div><div class="line">  &#125;</div><div class="line"></div><div class="line">  <span class="function"><span class="keyword">def</span> <span class="title">onStop</span></span>(): <span class="type">Unit</span> = &#123;</div><div class="line">    <span class="comment">// By default, do nothing.</span></div><div class="line">  &#125;</div><div class="line"></div><div class="line">  <span class="keyword">final</span> <span class="function"><span class="keyword">def</span> <span class="title">stop</span></span>(): <span class="type">Unit</span> = &#123;</div><div class="line">    <span class="keyword">val</span> _self = self</div><div class="line">    <span class="keyword">if</span> (_self != <span class="literal">null</span>) &#123;</div><div class="line">      rpcEnv.stop(_self)</div><div class="line">    &#125;</div><div class="line">  &#125;</div><div class="line">&#125;</div></pre></td></tr></table></figure>
+<h2 id="RpcEndpointRef"><a href="#RpcEndpointRef" class="headerlink" title="RpcEndpointRef"></a>RpcEndpointRef</h2><p><code>RpcEndpointRef</code> 是一个对 <code>RpcEndpoint</code> 的远程引用对象，通过它可以向远程的 <code>RpcEndpoint</code> 端发送消息以进行通信。<code>RpcEndpointRef</code> 特质的定义，代码如下所示：<br><figure class="highlight scala"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div><div class="line">5</div><div class="line">6</div><div class="line">7</div><div class="line">8</div><div class="line">9</div><div class="line">10</div><div class="line">11</div><div class="line">12</div><div class="line">13</div><div class="line">14</div><div class="line">15</div><div class="line">16</div><div class="line">17</div><div class="line">18</div><div class="line">19</div><div class="line">20</div><div class="line">21</div><div class="line">22</div><div class="line">23</div></pre></td><td class="code"><pre><div class="line"><span class="keyword">private</span>[spark] <span class="keyword">abstract</span> <span class="class"><span class="keyword">class</span> <span class="title">RpcEndpointRef</span>(<span class="params">conf: <span class="type">SparkConf</span></span>)  <span class="keyword">extends</span> <span class="title">Serializable</span> <span class="keyword">with</span> <span class="title">Logging</span> </span>&#123; </div><div class="line"></div><div class="line">  <span class="keyword">private</span>[<span class="keyword">this</span>] <span class="keyword">val</span> maxRetries = <span class="type">RpcUtils</span>.numRetries(conf)</div><div class="line">  <span class="keyword">private</span>[<span class="keyword">this</span>] <span class="keyword">val</span> retryWaitMs = <span class="type">RpcUtils</span>.retryWaitMs(conf)</div><div class="line">  <span class="keyword">private</span>[<span class="keyword">this</span>] <span class="keyword">val</span> defaultAskTimeout = <span class="type">RpcUtils</span>.askRpcTimeout(conf)</div><div class="line"></div><div class="line">  <span class="function"><span class="keyword">def</span> <span class="title">address</span></span>: <span class="type">RpcAddress</span></div><div class="line"></div><div class="line">  <span class="function"><span class="keyword">def</span> <span class="title">name</span></span>: <span class="type">String</span></div><div class="line"></div><div class="line">  <span class="function"><span class="keyword">def</span> <span class="title">send</span></span>(message: <span class="type">Any</span>): <span class="type">Unit</span></div><div class="line"></div><div class="line">  <span class="function"><span class="keyword">def</span> <span class="title">ask</span></span>[<span class="type">T</span>: <span class="type">ClassTag</span>](message: <span class="type">Any</span>, timeout: <span class="type">RpcTimeout</span>): <span class="type">Future</span>[<span class="type">T</span>]</div><div class="line"></div><div class="line">  <span class="function"><span class="keyword">def</span> <span class="title">ask</span></span>[<span class="type">T</span>: <span class="type">ClassTag</span>](message: <span class="type">Any</span>): <span class="type">Future</span>[<span class="type">T</span>] = ask(message, defaultAskTimeout)</div><div class="line"></div><div class="line">  <span class="function"><span class="keyword">def</span> <span class="title">askWithRetry</span></span>[<span class="type">T</span>: <span class="type">ClassTag</span>](message: <span class="type">Any</span>): <span class="type">T</span> = askWithRetry(message, defaultAskTimeout)</div><div class="line"></div><div class="line">  <span class="function"><span class="keyword">def</span> <span class="title">askWithRetry</span></span>[<span class="type">T</span>: <span class="type">ClassTag</span>](message: <span class="type">Any</span>, timeout: <span class="type">RpcTimeout</span>): <span class="type">T</span> = &#123;</div><div class="line">    ... ...</div><div class="line">  &#125;</div><div class="line"></div><div class="line">&#125;</div></pre></td></tr></table></figure></p>
+<p>上面代码中，send 方法发送消息后不等待响应，亦即 Send-and-forget ，Spark中基于 Netty 实现，实现在 NettyRpcEndpointRef 中，如下所示：<br><figure class="highlight scala"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div><div class="line">4</div></pre></td><td class="code"><pre><div class="line"><span class="keyword">override</span> <span class="function"><span class="keyword">def</span> <span class="title">send</span></span>(message: <span class="type">Any</span>): <span class="type">Unit</span> = &#123;</div><div class="line">  require(message != <span class="literal">null</span>, <span class="string">"Message is null"</span>)</div><div class="line">  nettyEnv.send(<span class="type">RequestMessage</span>(nettyEnv.address, <span class="keyword">this</span>, message))</div><div class="line">&#125;</div></pre></td></tr></table></figure></p>
+<p>可见，它是通过 <code>NettyRpcEnv</code> 来发送 <code>RequestMessage</code> 消息，并将当前 <code>NettyRpcEndpointRef</code> 封装到 <code>RequestMessage</code> 消息对象中发送出去，通信对端通过该 <code>NettyRpcEndpointRef</code> 能够识别出消息来源。</p>
+<p>而ask方法发送消息后需要等待通信对端给予响应，通过 <code>Future</code> 来异步获取响应结果，也是在 <code>NettyRpcEndpointRef</code> 中实现，如下所示:<br><figure class="highlight scala"><table><tr><td class="gutter"><pre><div class="line">1</div><div class="line">2</div><div class="line">3</div></pre></td><td class="code"><pre><div class="line"><span class="keyword">override</span> <span class="function"><span class="keyword">def</span> <span class="title">ask</span></span>[<span class="type">T</span>: <span class="type">ClassTag</span>](message: <span class="type">Any</span>, timeout: <span class="type">RpcTimeout</span>): <span class="type">Future</span>[<span class="type">T</span>] = &#123;</div><div class="line">  nettyEnv.ask(<span class="type">RequestMessage</span>(nettyEnv.address, <span class="keyword">this</span>, message), timeout)</div><div class="line">&#125;</div></pre></td></tr></table></figure></p>
+<p>类似的，也是通过 <code>NettyRpcEnv</code> 来发送一个 <code>RequestMessage</code> 消息。</p>
+
+      
+    </div>
+    
+  </div>
+  
+    
+    <div class="copyright">
+        <p><span>本文标题:</span><a href="/2016/12/30/2016-12-30.Spark RPC通信层分析/">Spark RPC通信层分析</a></p>
+        <p><span>文章作者:</span><a href="/" title="回到主页">xcoder</a></p>
+        <p><span>发布时间:</span>2016-12-30, 00:00:00</p>
+        <p><span>最后更新:</span>2016-12-31, 02:31:40</p>
+        <p>
+            <span>原始链接:</span><a class="post-url" href="/2016/12/30/2016-12-30.Spark RPC通信层分析/" title="Spark RPC通信层分析">http://yoursite.com/2016/12/30/2016-12-30.Spark RPC通信层分析/</a>
+            <span class="copy-path" data-clipboard-text="原文: http://yoursite.com/2016/12/30/2016-12-30.Spark RPC通信层分析/　　作者: xcoder" title="点击复制文章链接"><i class="fa fa-clipboard"></i></span>
+            <script> var clipboard = new Clipboard('.copy-path'); </script>
+        </p>
+        <p>
+            <span>许可协议:</span><i class="fa fa-creative-commons"></i> <a rel="license" href="http://creativecommons.org/licenses/by-nc-sa/4.0/" title="CC BY-NC-SA 4.0 International" target = "_blank">"署名-非商用-相同方式共享 4.0"</a> 转载请保留原文链接及作者。
+        </p>
+    </div>
+
+
+
+    <nav id="article-nav">
+        
+        
+            <div id="article-nav-older" class="article-nav-title">
+                <a href="/2016/06/14/duoshuo-disqus-comment-count/">
+                    获取多说和 Disqus 文章评论数的方法
+                </a>
+            </div>
+        
+    </nav>
+
+  
+</article>
+
+    <div id="toc" class="toc-article">
+        <strong class="toc-title">文章目录</strong>
+        
+            <ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#Spark-RPC"><span class="toc-number">1.</span> <span class="toc-text">Spark RPC</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#RpcEnvFactory"><span class="toc-number">2.</span> <span class="toc-text">RpcEnvFactory</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#RpcEnv"><span class="toc-number">3.</span> <span class="toc-text">RpcEnv</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#RpcEnv抽象类"><span class="toc-number">3.1.</span> <span class="toc-text">RpcEnv抽象类</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#创建NettyRpcEnv环境对象"><span class="toc-number">3.2.</span> <span class="toc-text">创建NettyRpcEnv环境对象</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#RpcEndpoint特质"><span class="toc-number">4.</span> <span class="toc-text">RpcEndpoint特质</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#RpcEndpointRef"><span class="toc-number">5.</span> <span class="toc-text">RpcEndpointRef</span></a></li></ol>
+        
+    </div>
+    <style>
+        .left-col .switch-btn,
+        .left-col .switch-area {
+            display: none;
+        }
+        .toc-level-3 i,
+        .toc-level-3 ol {
+            display: none !important;
+        }
+    </style>
+
+    <input type="button" id="tocButton" value="隐藏目录"  title="点击按钮隐藏或者显示文章目录">
+
+    <script>
+        yiliaConfig.toc = ["隐藏目录", "显示目录", !!"false"];
+    </script>
+
+
+
+    
+<div class="share">
+    
+        <div class="bdsharebuttonbox">
+            <a href="#" class="fa fa-twitter bds_twi" data-cmd="twi" title="分享到推特"></a>
+            <a href="#" class="fa fa-weibo bds_tsina" data-cmd="tsina" title="分享到新浪微博"></a>
+            <a href="#" class="fa fa-qq bds_sqq" data-cmd="sqq" title="分享给 QQ 好友"></a>
+            <a href="#" class="fa fa-files-o bds_copy" data-cmd="copy" title="复制网址"></a>
+            <a href="#" class="fa fa fa-envelope-o bds_mail" data-cmd="mail" title="通过邮件分享"></a>
+            <a href="#" class="fa fa-weixin bds_weixin" data-cmd="weixin" title="生成文章二维码"></a>
+            <a href="#" class="fa fa-share-alt bds_more" data-cmd="more"></i></a>
+        </div>
+        <script>
+            window._bd_share_config={
+                "common":{"bdSnsKey":{},"bdText":"Spark RPC通信层分析　| XCODER　","bdMini":"2","bdMiniList":false,"bdPic":"","bdStyle":"0","bdSize":"24"},"share":{}};with(document)0[(getElementsByTagName('head')[0]||body).appendChild(createElement('script')).src='http://bdimg.share.baidu.com/static/api/js/share.js?v=89860593.js?cdnversion='+~(-new Date()/36e5)];
+        </script>
+    
+
+    
+</div>
+
+
+
+
+
+
+
+    
+
+
+
+
+    <div class="scroll" id="post-nav-button">
+        
+            <a href="/" title="回到主页"><i class="fa fa-home"></i></a>
+        
+
+        <a title="文章列表"><i class="fa fa-bars"></i><i class="fa fa-times"></i></a>
+
+        
+            <a href="/2016/06/14/duoshuo-disqus-comment-count/" title="下一篇: 获取多说和 Disqus 文章评论数的方法">
+                <i class="fa fa-angle-right"></i>
+            </a>
+        
+    </div>
+
+    <ul class="post-list"><li class="post-list-item"><a class="post-list-link" href="/2016/12/30/2016-12-30.Spark RPC通信层分析/">Spark RPC通信层分析</a></li><li class="post-list-item"><a class="post-list-link" href="/2016/06/14/duoshuo-disqus-comment-count/">获取多说和 Disqus 文章评论数的方法</a></li><li class="post-list-item"><a class="post-list-link" href="/2016/06/13/hexo-collapsible-toc/">为 Hexo 添加可折叠的文章目录</a></li><li class="post-list-item"><a class="post-list-link" href="/2016/05/31/hexo-local-search/">让 Hexo 博客支持本地站内搜索</a></li><li class="post-list-item"><a class="post-list-link" href="/2016/05/17/image-compression/">关于 Yelee 主题背景图的压缩与优化</a></li><li class="post-list-item"><a class="post-list-link" href="/2016/05/11/public-dns/">几个国内专用的公共 DNS</a></li><li class="post-list-item"><a class="post-list-link" href="/2016/04/20/baidu-share-fontawesome/">在百度分享中使用 Font Awesome 图标</a></li><li class="post-list-item"><a class="post-list-link" href="/2016/04/18/text-overflow-ellipsis/">CSS 设置文本省略 ellipsis (…)</a></li><li class="post-list-item"><a class="post-list-link" href="/2016/03/27/hexo-browsersync/">Hexo 页面自动刷新与移动端调试</a></li><li class="post-list-item"><a class="post-list-link" href="/2016/03/04/markdown-table-style/">Markdown 表格样式调整与自适应优化</a></li><li class="post-list-item"><a class="post-list-link" href="/2016/02/16/front-end-tools/">前端工程化工具初选</a></li><li class="post-list-item"><a class="post-list-link" href="/2016/01/10/hexo-post-version-control/">关联 GitHub, 让 Hexo 支持查看文章更新历史</a></li><li class="post-list-item"><a class="post-list-link" href="/2016/01/02/hexo-comments/">为 Hexo 主题添加评论模块 — Disqus, 多说, 友言</a></li><li class="post-list-item"><a class="post-list-link" href="/2016/01/01/hexo-config-true-false/">关于 Hexo 配置文件中的 true 和 false</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/12/22/anki-excel-shortcuts/">Anki 记忆库之 Excel 快捷键大全</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/12/21/common-hexo-commands/">Hexo 最常用的几个命令</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/12/09/css-font-family/">CSS font-family 网页字体使用小结</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/11/30/sublime-config/">Sublime Text 3 使用配置与插件安装</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/11/23/anki-templates/">Anki 自用卡片模板分享</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/11/23/git-command/">Git 基础命令与相关术语</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/11/16/png-gif-transparency/">制作透明背景 PNG 图片和 GIF 动图的几种方法</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/11/09/web-style-guide/">Web Style Guide 前端代码规范</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/11/04/hexo-deployment/">将 Hexo 博客部署到 GitHub Pages</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/10/31/excel-markdown-table/">用 Excel 生成和管理 Markdown 表格</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/10/25/hexo-tag-cloud/">让 Hexo 自动生成 Tag Cloud 标签云页面</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/10/16/hexo-404-page/">在 Hexo 中创建匹配主题的404页面</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/09/29/duoshuo-style/">多说样式折腾记录 — 添加 UA 浏览器标识、旋转头像等</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/09/20/windows-mac-software/">自用 Windows 和 Mac 软件推荐</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/08/30/EndNote-Markdown/">EndNote 与 Markdown 结合 — 为网文快速添加 Reference</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/08/28/Front-End-Study/">个人 Web 前端学习路线</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/08/20/blog-building/">个人博客站点建设历程</a></li><li class="post-list-item"><a class="post-list-link" href="/2015/08/19/2015-08-19.hello-world/">Hello World</a></li></ul>
+
+
+
+
+    <script>
+        
+    </script>
+</div>
+      <footer id="footer">
+    <div class="outer">
+        <div id="footer-info">
+            <div class="footer-left">
+                <i class="fa fa-copyright"></i> 
+                2016-2017 xcoder
+            </div>
+            <div class="footer-right">
+                <a href="http://hexo.io/" target="_blank" title="快速、简洁且高效的博客框架">Hexo</a>  Theme <a href="https://github.com/MOxFIVE/hexo-theme-yelee" target="_blank" title="简而不减 Hexo 双栏博客主题  v3.5">Yelee</a> by MOxFIVE <i class="fa fa-heart animated infinite pulse"></i>
+            </div>
+        </div>
+        
+            <div class="visit">
+                
+                    <span id="busuanzi_container_site_pv" style='display:none'>
+                        <span id="site-visit" title="本站到访数"><i class="fa fa-user" aria-hidden="true"></i><span id="busuanzi_value_site_uv"></span>
+                        </span>
+                    </span>
+                
+                
+                    <span>| </span>
+                
+                
+                    <span id="busuanzi_container_page_pv" style='display:none'>
+                        <span id="page-visit"  title="本页阅读量"><i class="fa fa-eye animated infinite pulse" aria-hidden="true"></i><span id="busuanzi_value_page_pv"></span>
+                        </span>
+                    </span>
+                
+            </div>
+        
+    </div>
+</footer>
+    </div>
+    
+<script data-main="/js/main.js" src="//cdn.bootcss.com/require.js/2.2.0/require.min.js"></script>
+
+    <script>
+        $(document).ready(function() {
+            var iPad = window.navigator.userAgent.indexOf('iPad');
+            if (iPad > -1 || $(".left-col").css("display") === "none") {
+                var bgColorList = ["#9db3f4", "#414141", "#e5a859", "#f5dfc6", "#c084a0", "#847e72", "#cd8390", "#996731"];
+                var bgColor = Math.ceil(Math.random() * (bgColorList.length - 1));
+                $("body").css({"background-color": bgColorList[bgColor], "background-size": "cover"});
+            }
+            else {
+                var backgroundnum = 5;
+                var backgroundimg = "url(/background/bg-x.jpg)".replace(/x/gi, Math.ceil(Math.random() * backgroundnum));
+                $("body").css({"background": backgroundimg, "background-attachment": "fixed", "background-size": "cover"});
+            }
+        })
+    </script>
+
+
+
+
+
+<div class="scroll" id="scroll">
+    <a href="#" title="返回顶部"><i class="fa fa-arrow-up"></i></a>
+    <a href="#comments" onclick="load$hide();" title="查看评论"><i class="fa fa-comments-o"></i></a>
+    <a href="#footer" title="转到底部"><i class="fa fa-arrow-down"></i></a>
+</div>
+<script>
+    // Open in New Window
+    
+        var oOpenInNew = {
+            
+            
+            
+            
+            
+            
+             archives: ".archive-article-title", 
+             miniArchives: "a.post-list-link", 
+            
+             friends: "#js-friends a", 
+             socail: ".social a" 
+        }
+        for (var x in oOpenInNew) {
+            $(oOpenInNew[x]).attr("target", "_blank");
+        }
+    
+</script>
+
+<script async src="https://dn-lbstatics.qbox.me/busuanzi/2.3/busuanzi.pure.mini.js">
+</script>
+  </div>
+</body>
+</html>
