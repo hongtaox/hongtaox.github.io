@@ -7,7 +7,7 @@ title: XCODER
 subtitle:
 description:
 author: xcoder
-language: zh-Hans
+language: zh-CN
 timezone:
 
 # Archives
@@ -84,7 +84,7 @@ pagination_dir: page
 # Extensions
 ## Plugins: https://hexo.io/plugins/
 ## Themes: https://hexo.io/themes/
-theme: yelee
+theme: BlueLake
 
 # Deployment
 ## Docs: https://hexo.io/docs/deployment.html
