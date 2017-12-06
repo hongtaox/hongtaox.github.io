@@ -33,7 +33,7 @@ figure.highlight,
 }
 figure.highlight figcaption,
 .codeblock figcaption {
-  font-size: 13px;
+  font-size: 16px;
   padding: 0 15px 20px;
   margin: 0;
   background: #f7f8f8;
@@ -64,7 +64,7 @@ figure.highlight .code,
 figure.highlight .tag,
 .codeblock .tag {
   background-color: inherit;
-  font-family: Source Code Pro, Monaco, Menlo, Consolas, monospace;
+  font-family: Consolas, Source Code Pro, Monaco, Menlo, monospace;
   border: none;
   padding: 0;
   margin: 0;
@@ -92,7 +92,7 @@ figure.highlight .gutter .line,
 }
 figure.highlight .line,
 .codeblock .line {
-  font-size: 13px;
+  font-size: 16px;
   color: #333;
 }
 figure.highlight .line.marked,
